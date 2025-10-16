@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Revisión de Duplicados Excel</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f4f4f4;
+      padding: 40px;
+      max-width: 800px;
+      margin: auto;
+    }
+    h1 {
+      color: #333;
+    }
+    input[type="file"] {
+      margin-top: 20px;
+    }
+    button {
+      margin-top: 20px;
+      padding: 10px 20px;
+      background-color: #0078D4;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+    button:disabled {
+      background-color: #aaa;
+    }
+    #status {
+      margin-top: 20px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h1>🧮 Revisión de Duplicados en Excel</h1>
+  <p>Sube tu archivo Excel (.xlsx) y descarga una versión sin duplicados por nombre y categoría.</p>
+  <input type="file" id="fileInput" accept=".xlsx" />
+  <button id="processBtn" disabled>Procesar archivo</button>
+  <div id="status"></div>
+
+  <script type="module">
+    import { loadPyodide } from "https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js";
+
+    let pyodide = await loadPyodide();
+    await pyodide.loadPackage(["pandas", "openpyxl"]);
+
+    const fileInput = document.getElementById("fileInput");
+    const processBtn = document.getElementById("processBtn");
+    const status = document.getElementById("status");
+
+    let uploadedFile = null;
+
+    fileInput.addEventListener("change", (e) => {
+      uploadedFile = e.target.files[0];
+      processBtn.disabled = !uploadedFile;
+      status.textContent = "";
+    });
+
+    processBtn.addEventListener("click", async () => {
+      if (!uploadedFile) return;
+
+      status.textContent = "⏳ Procesando archivo...";
+
+      const arrayBuffer = await uploadedFile.arrayBuffer();
+      pyodide.FS.writeFile("entrada.xlsx", new Uint8Array(arrayBuffer));
+
+      const script = `
+import pandas as pd
+from collections import Counter
+
+df = pd.read_excel("entrada.xlsx")
+
+columnas = ['Nombre', 'Categoría de producto']
+df = df.dropna(subset=columnas)
+df['Nombre_Categoria'] = df['Nombre'] + ' | ' + df['Categoría de producto']
+contador = Counter(df['Nombre_Categoria'])
+duplicados = {item for item, count in contador.items() if count > 1}
+df_filtrado = df[~df['Nombre_Categoria'].isin(duplicados)]
+df_filtrado.drop(columns=['Nombre_Categoria'], inplace=True)
+df_filtrado.to_excel("salida.xlsx", index=False)
+`;
+
+      await pyodide.runPythonAsync(script);
+
+      const outputData = pyodide.FS.readFile("salida.xlsx");
+      const blob = new Blob([outputData], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const url = URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "archivo_sin_duplicados.xlsx";
+      link.textContent = "📥 Descargar archivo corregido";
+      link.style.display = "block";
+      link.style.marginTop = "20px";
+
+      status.textContent = "✅ Archivo procesado correctamente.";
+      status.appendChild(link);
+    });
+  </script>
+</body>
+</html>
