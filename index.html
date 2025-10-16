@@ -2,34 +2,82 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <title>Revisión de Duplicados Excel</title>
+  <title>Revisión de Duplicados en Excel</title>
   <style>
     body {
-      font-family: Arial, sans-serif;
-      background-color: #f4f4f4;
+      font-family: 'Segoe UI', sans-serif;
+      background: linear-gradient(to right, #e3f2fd, #fce4ec);
       padding: 40px;
       max-width: 800px;
       margin: auto;
+      color: #333;
+      animation: fadeIn 1s ease-in;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
     }
     h1 {
-      color: #333;
+      color: #d81b60;
+      font-size: 32px;
+      margin-bottom: 10px;
+      text-align: center;
+    }
+    p {
+      font-size: 18px;
+      text-align: center;
+      margin-bottom: 30px;
     }
     input[type="file"] {
-      margin-top: 20px;
+      display: block;
+      margin: 0 auto 20px auto;
+      font-size: 16px;
     }
     button {
-      margin-top: 20px;
-      padding: 10px 20px;
-      background-color: #0078D4;
+      display: block;
+      margin: auto;
+      padding: 12px 24px;
+      font-size: 16px;
+      background-color: #1976d2;
       color: white;
       border: none;
+      border-radius: 6px;
       cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+    button:hover {
+      background-color: #1565c0;
     }
     button:disabled {
       background-color: #aaa;
+      cursor: not-allowed;
+    }
+    #progressBar {
+      width: 100%;
+      background-color: #eee;
+      border-radius: 5px;
+      overflow: hidden;
+      margin-top: 30px;
+      height: 20px;
+      display: none;
+    }
+    #progressFill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(to right, #42a5f5, #7e57c2);
+      transition: width 0.5s ease;
     }
     #status {
+      margin-top: 30px;
+      font-weight: bold;
+      text-align: center;
+    }
+    a {
+      display: block;
       margin-top: 20px;
+      text-align: center;
+      color: #0078D4;
+      text-decoration: none;
       font-weight: bold;
     }
   </style>
@@ -39,17 +87,20 @@
   <p>Sube tu archivo Excel (.xlsx) y descarga una versión sin duplicados por nombre y categoría.</p>
   <input type="file" id="fileInput" accept=".xlsx" />
   <button id="processBtn" disabled>Procesar archivo</button>
+  <div id="progressBar"><div id="progressFill"></div></div>
   <div id="status"></div>
 
   <script type="module">
     import { loadPyodide } from "https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js";
 
-    let pyodide = await loadPyodide();
+    const pyodide = await loadPyodide();
     await pyodide.loadPackage(["pandas", "openpyxl"]);
 
     const fileInput = document.getElementById("fileInput");
     const processBtn = document.getElementById("processBtn");
     const status = document.getElementById("status");
+    const progressBar = document.getElementById("progressBar");
+    const progressFill = document.getElementById("progressFill");
 
     let uploadedFile = null;
 
@@ -63,17 +114,24 @@
       if (!uploadedFile) return;
 
       status.textContent = "⏳ Procesando archivo...";
+      progressBar.style.display = "block";
+      progressFill.style.width = "20%";
 
-      const arrayBuffer = await uploadedFile.arrayBuffer();
-      pyodide.FS.writeFile("entrada.xlsx", new Uint8Array(arrayBuffer));
+      try {
+        const arrayBuffer = await uploadedFile.arrayBuffer();
+        pyodide.FS.writeFile("entrada.xlsx", new Uint8Array(arrayBuffer));
+        progressFill.style.width = "50%";
 
-      const script = `
+        const script = `
 import pandas as pd
 from collections import Counter
 
 df = pd.read_excel("entrada.xlsx")
-
 columnas = ['Nombre', 'Categoría de producto']
+for col in columnas:
+    if col not in df.columns:
+        raise ValueError(f"Falta la columna requerida: {col}")
+
 df = df.dropna(subset=columnas)
 df['Nombre_Categoria'] = df['Nombre'] + ' | ' + df['Categoría de producto']
 contador = Counter(df['Nombre_Categoria'])
@@ -83,21 +141,25 @@ df_filtrado.drop(columns=['Nombre_Categoria'], inplace=True)
 df_filtrado.to_excel("salida.xlsx", index=False)
 `;
 
-      await pyodide.runPythonAsync(script);
+        await pyodide.runPythonAsync(script);
+        progressFill.style.width = "100%";
 
-      const outputData = pyodide.FS.readFile("salida.xlsx");
-      const blob = new Blob([outputData], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-      const url = URL.createObjectURL(blob);
+        const outputData = pyodide.FS.readFile("salida.xlsx");
+        const blob = new Blob([outputData], {
+          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        });
+        const url = URL.createObjectURL(blob);
 
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = "archivo_sin_duplicados.xlsx";
-      link.textContent = "📥 Descargar archivo corregido";
-      link.style.display = "block";
-      link.style.marginTop = "20px";
-
-      status.textContent = "✅ Archivo procesado correctamente.";
-      status.appendChild(link);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "archivo_sin_duplicados.xlsx";
+        link.textContent = "📥 Descargar archivo corregido";
+        status.textContent = "✅ Archivo procesado correctamente.";
+        status.appendChild(link);
+      } catch (error) {
+        status.textContent = "❌ Error: " + error.message;
+        progressFill.style.width = "0%";
+      }
     });
   </script>
 </body>
